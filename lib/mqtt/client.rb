@@ -89,7 +89,7 @@ class MQTT::Client
   #  end
   #
   def self.connect(*args, &block)
-    client = MQTT::Client.new(*args)
+    client = self.new(*args)
     client.connect(&block)
     return client
   end
@@ -239,21 +239,7 @@ class MQTT::Client
     end
 
     if not connected?
-      # Create network socket
-      tcp_socket = TCPSocket.new(@host, @port)
-
-      if @ssl
-        # Set the protocol version
-        if @ssl.is_a?(Symbol)
-          ssl_context.ssl_version = @ssl
-        end
-
-        @socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, ssl_context)
-        @socket.sync_close = true
-        @socket.connect
-      else
-        @socket = tcp_socket
-      end
+      @socket = create_socket
 
       # Construct a connect packet
       packet = MQTT::Packet::Connect.new(
@@ -429,6 +415,29 @@ class MQTT::Client
     send_packet(packet)
   end
 
+  # Create network socket
+  def create_socket
+    tcp_socket = TCPSocket.new(@host, @port)
+
+    if @ssl
+      # Set the protocol version
+      if @ssl.is_a?(Symbol)
+        ssl_context.ssl_version = @ssl
+      end
+
+      socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, ssl_context)
+      socket.sync_close = true
+      socket.connect
+      socket
+    else
+      tcp_socket
+    end
+  end
+
+  def peek
+    IO.select([@socket], [], [], SELECT_TIMEOUT)
+  end
+
 private
 
   # Try to read a packet from the server
@@ -436,7 +445,7 @@ private
   def receive_packet
     begin
       # Poll socket - is there data waiting?
-      result = IO.select([@socket], [], [], SELECT_TIMEOUT)
+      result = peek
       unless result.nil?
         # Yes - read in the packet
         packet = MQTT::Packet.read(@socket)
